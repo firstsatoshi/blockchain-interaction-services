@@ -5,7 +5,7 @@ const blockchainInfo = require('blockchain.info');
 const { networks } = require('../../config');
 const { abi } = require('../../ABI');
 
-// handle sending BTC 
+// handle sending BTC
 module.exports.sendBTCTransaction = async (networkType, fromAddress, privateKey, toAddress, amount) => {
   const testnet = networkType === 'testnet';
   const keyPair = bitcoin.ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
@@ -25,7 +25,7 @@ module.exports.sendBTCTransaction = async (networkType, fromAddress, privateKey,
   }
 
   if (totalValue < amountSat)  throw new Error('Insufficient funds');
-  
+
   txb.addOutput(toAddress, amountSat);
   const change = totalValue - amountSat;
 
@@ -45,7 +45,48 @@ module.exports.sendBTCTransaction = async (networkType, fromAddress, privateKey,
   return txHash;
 }
 
-// handle sending ETH / BNB 
+// handle sending BTC
+module.exports.sendBTCTransactionEx = async (networkType, fromAddress, privateKey, toAddress, amount) => {
+    const testnet = networkType === 'testnet';
+    const keyPair = bitcoin.ECPair.fromPrivateKey(Buffer.from(privateKey, 'hex'), {
+      networkType: testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin,
+    });
+    const amountSat = Math.round(amount * 1e8);
+    const unspentTxs = await blockchainInfo.blockexplorer.getUnspentOutputs(fromAddress, { testnet });
+    const txb = new bitcoin.TransactionBuilder(testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin);
+
+    let totalValue = 0;
+    for (const tx of unspentTxs) {
+      txb.addInput(tx.txid, tx.vout);
+      totalValue += tx.value;
+      if (totalValue >= amountSat) {
+        break;
+      }
+    }
+
+    if (totalValue < amountSat)  throw new Error('Insufficient funds');
+
+    txb.addOutput(toAddress, amountSat);
+    const change = totalValue - amountSat;
+
+    if (change > 0) txb.addOutput(fromAddress, change);
+
+    for (let i = 0; i < unspentTxs.length; i++) {
+      txb.sign({
+        prevOutScriptType: bitcoin.scriptTypes.P2PKH,
+        vin: i,
+        keyPair,
+      });
+    }
+
+    const txHex = txb.build().toHex();
+    const txHash = await blockchainInfo.pushtx(txHex, { testnet });
+
+    return txHash;
+  }
+
+
+// handle sending ETH / BNB
 module.exports.sendBEP20ERC20Transaction = async (blockchain, networkType, privateKey, fromAddress, toAddress, amount, tokenAddress) => {
   if (!networks[blockchain]) {
     throw new Error(`Network ${blockchain} not supported`);
